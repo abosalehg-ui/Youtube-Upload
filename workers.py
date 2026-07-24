@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 خيوط العمل في الخلفية (QThread) — تُبقي الواجهة مستجيبة أثناء نداءات الشبكة.
+
+القاعدة المعمارية: كل نداء API بسيط (بلا تقدّم) يُنفَّذ عبر ``TaskWorker`` العام.
+تبقى الخيوط المخصّصة فقط للعمليات التي تبثّ تقدّمًا مباشرًا (الرفع الفردي
+والجماعي)، لأنها تحتاج إشارات ``progress``/``status`` وإلغاءً أثناء التنفيذ.
 """
 
 from typing import Any, Callable, List
@@ -16,8 +20,8 @@ logger = get_logger("workers")
 class TaskWorker(QThread):
     """عامل عام يُنفّذ أي دالة في الخلفية ويُصدر النتيجة أو الخطأ.
 
-    يُستخدم لكل نداءات الـAPI التي كانت تُنفّذ متزامنة على خيط الواجهة
-    (قوائم التشغيل، التعديل، الإنشاء، الحذف...) لمنع تجمّد الواجهة.
+    يُستخدم لكل نداءات الـAPI البسيطة (المصادقة، تحميل القناة/الفيديوهات/
+    القوائم/التعليقات، الحذف، التعديل، الإنشاء...) لمنع تجمّد الواجهة.
     """
     finished = pyqtSignal(bool, object, str)  # success, result, error
 
@@ -36,25 +40,8 @@ class TaskWorker(QThread):
             self.finished.emit(False, None, str(exc))
 
 
-class AuthThread(QThread):
-    """خيط المصادقة."""
-    finished = pyqtSignal(bool, str)
-
-    def __init__(self, yt_api) -> None:
-        super().__init__()
-        self.yt_api = yt_api
-
-    def run(self) -> None:
-        try:
-            self.yt_api.authenticate()
-            self.finished.emit(True, "تمت المصادقة بنجاح! ✓")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("فشل المصادقة")
-            self.finished.emit(False, f"خطأ في المصادقة: {exc}")
-
-
 class UploadThread(QThread):
-    """خيط رفع الفيديو."""
+    """خيط رفع الفيديو (يبثّ التقدّم والحالة ويدعم الإلغاء)."""
     progress = pyqtSignal(int)
     status_update = pyqtSignal(str)
     finished = pyqtSignal(bool, str, str)  # success, message, video_id
@@ -96,94 +83,6 @@ class UploadThread(QThread):
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("فشل رفع الفيديو")
             self.finished.emit(False, f"خطأ في الرفع: {exc}", "")
-
-
-class LoadVideosThread(QThread):
-    """خيط تحميل قائمة الفيديوهات."""
-    finished = pyqtSignal(bool, object, str)
-
-    def __init__(self, yt_api, max_results: int = 50) -> None:
-        super().__init__()
-        self.yt_api = yt_api
-        self.max_results = max_results
-
-    def run(self) -> None:
-        try:
-            videos = self.yt_api.get_videos(self.max_results)
-            self.finished.emit(True, videos, "")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("فشل تحميل الفيديوهات")
-            self.finished.emit(False, [], f"خطأ: {exc}")
-
-
-class LoadChannelInfoThread(QThread):
-    """خيط تحميل معلومات القناة."""
-    finished = pyqtSignal(bool, object, str)
-
-    def __init__(self, yt_api) -> None:
-        super().__init__()
-        self.yt_api = yt_api
-
-    def run(self) -> None:
-        try:
-            info = self.yt_api.get_channel_statistics()
-            self.finished.emit(True, info, "")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("فشل تحميل معلومات القناة")
-            self.finished.emit(False, None, f"خطأ: {exc}")
-
-
-class LoadPlaylistsThread(QThread):
-    """خيط تحميل قوائم التشغيل."""
-    finished = pyqtSignal(bool, object, str)
-
-    def __init__(self, yt_api) -> None:
-        super().__init__()
-        self.yt_api = yt_api
-
-    def run(self) -> None:
-        try:
-            playlists = self.yt_api.get_playlists()
-            self.finished.emit(True, playlists, "")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("فشل تحميل قوائم التشغيل")
-            self.finished.emit(False, [], f"خطأ: {exc}")
-
-
-class DeleteVideoThread(QThread):
-    """خيط حذف فيديو."""
-    finished = pyqtSignal(bool, str)
-
-    def __init__(self, yt_api, video_id) -> None:
-        super().__init__()
-        self.yt_api = yt_api
-        self.video_id = video_id
-
-    def run(self) -> None:
-        try:
-            self.yt_api.delete_video(self.video_id)
-            self.finished.emit(True, "تم حذف الفيديو بنجاح!")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("فشل حذف الفيديو")
-            self.finished.emit(False, f"خطأ في الحذف: {exc}")
-
-
-class LoadCommentsThread(QThread):
-    """خيط تحميل التعليقات."""
-    finished = pyqtSignal(bool, object, str)
-
-    def __init__(self, yt_api, video_id) -> None:
-        super().__init__()
-        self.yt_api = yt_api
-        self.video_id = video_id
-
-    def run(self) -> None:
-        try:
-            comments = self.yt_api.get_video_comments(self.video_id)
-            self.finished.emit(True, comments, "")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("فشل تحميل التعليقات")
-            self.finished.emit(False, [], f"خطأ: {exc}")
 
 
 class BatchUploadThread(QThread):

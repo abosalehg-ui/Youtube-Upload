@@ -7,8 +7,7 @@ YouTube Upload - التطبيق الرئيسي
 
 import sys
 import os
-import json
-import datetime
+import unicodedata
 
 # ===== Fix Qt platform plugin path (MUST be before any PyQt5 import) =====
 def _fix_qt_plugin_path():
@@ -52,23 +51,45 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QProgressBar,
     QMessageBox, QGroupBox, QFormLayout, QDateTimeEdit, QCheckBox,
     QFrame, QDialog, QDialogButtonBox, QListWidget, QListWidgetItem,
-    QSpinBox, QStatusBar, QInputDialog, QMenu, QAbstractItemView,
-    QGridLayout, QScrollArea, QSplitter, QSizePolicy
+    QInputDialog, QMenu, QAbstractItemView,
+    QScrollArea, QSplitter
 )
-from PyQt5.QtCore import Qt, QDateTime, QTimer, QSize, QUrl
-from PyQt5.QtGui import QFont, QIcon, QDesktopServices, QPixmap, QKeySequence
+from PyQt5.QtCore import Qt, QDateTime, QUrl
+from PyQt5.QtGui import QFont, QDesktopServices, QKeySequence
 
 from constants import *
 from styles import C, STYLESHEET
 from utils import setup_logging, get_logger, format_number, format_date, parse_tags
 from yt_api import YouTubeAPI
-from workers import (
-    AuthThread, UploadThread, LoadVideosThread,
-    LoadChannelInfoThread, LoadPlaylistsThread,
-    DeleteVideoThread, LoadCommentsThread, BatchUploadThread, TaskWorker
-)
+from workers import UploadThread, BatchUploadThread, TaskWorker
 
 logger = get_logger("main")
+
+
+def _scaled_font(point_size: int, bold: bool = False) -> QFont:
+    """إنشاء خط بحجم/سماكة محدّدين مع **وراثة عائلة الخط** من خط التطبيق.
+
+    نتفادى ترميز 'Segoe UI' في كل ودجت (لا يعرض العربية جيدًا خارج ويندوز)؛
+    تُضبط العائلة مركزيًا في ``main()`` وتُطبَّق هنا تلقائيًا.
+    """
+    font = QFont()
+    font.setPointSize(point_size)
+    font.setBold(bold)
+    return font
+
+
+def _bold_font(point_size: int) -> QFont:
+    """اختصار لخط عريض بحجم محدّد."""
+    return _scaled_font(point_size, bold=True)
+
+
+def _clean_label(text: str) -> str:
+    """اشتقاق اسم وصفي لقارئ الشاشة بإزالة الإيموجي/الرموز والإبقاء على الحروف والأرقام."""
+    cleaned = "".join(
+        ch for ch in text
+        if unicodedata.category(ch)[0] in ("L", "N") or ch.isspace()
+    )
+    return " ".join(cleaned.split())
 
 
 def populate_category_combo(combo: QComboBox) -> None:
@@ -108,16 +129,20 @@ def create_stat_card(title, value, color=None):
 
     val_label = QLabel(str(value))
     val_label.setAlignment(Qt.AlignCenter)
-    val_label.setFont(QFont("Segoe UI", 32, QFont.Bold))
+    val_label.setFont(_bold_font(32))
     val_label.setStyleSheet(f"color: {color or C['accent']}; border: none;")
 
     title_label = QLabel(title)
     title_label.setAlignment(Qt.AlignCenter)
-    title_label.setFont(QFont("Segoe UI", 12))
+    title_label.setFont(_scaled_font(12))
     title_label.setStyleSheet(f"color: {C['text2']}; border: none;")
 
     layout.addWidget(val_label)
     layout.addWidget(title_label)
+
+    # مراجع مباشرة لتفادي الاقتران الهش بالوصول إلى العناصر بالفهرس.
+    card.val_label = val_label
+    card.title_label = title_label
     return card
 
 
@@ -175,6 +200,51 @@ class MainWindow(QMainWindow):
         worker.start()
         return worker
 
+    @staticmethod
+    def _scrollable(inner: QWidget) -> QWidget:
+        """لفّ ودجت داخل منطقة تمرير حتى لا يُقصّ المحتوى على الشاشات الصغيرة."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(inner)
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.addWidget(scroll)
+        return wrapper
+
+    def _running_threads(self):
+        """كل خيوط الخلفية الحيّة (العامة + الرفع الفردي + الرفع الجماعي)."""
+        threads = list(self._threads)
+        for attr in ("_upload_thread", "_batch_thread"):
+            t = getattr(self, attr, None)
+            if t is not None:
+                threads.append(t)
+        return [t for t in threads if t.isRunning()]
+
+    def closeEvent(self, event):
+        """إنهاء آمن: نمنع تدمير خيوط لا تزال تعمل (تفادي تعطّل Qt)."""
+        running = self._running_threads()
+        if not running:
+            event.accept()
+            return
+
+        reply = QMessageBox.question(
+            self, "الخروج",
+            "توجد عمليات قيد التنفيذ (رفع/تحميل). هل تريد الخروج وإلغاؤها؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            event.ignore()
+            return
+
+        # طلب الإلغاء من خيوط الرفع التي تدعمه، ثم الانتظار حتى تنتهي كلها.
+        for t in running:
+            if hasattr(t, "cancel"):
+                t.cancel()
+        for t in running:
+            t.wait(5000)
+        event.accept()
+
     # ================================================================
     #  بناء الواجهة
     # ================================================================
@@ -216,6 +286,17 @@ class MainWindow(QMainWindow):
         # ---- Status Bar ----
         self.statusBar().showMessage("مرحباً بك في YouTube Upload! قم بتسجيل الدخول للبدء.")
 
+        # أسماء وصفية لكل الأزرار (لقارئات الشاشة) دون المساس بما ضُبط يدويًا.
+        self._apply_accessibility()
+
+    def _apply_accessibility(self):
+        """تعيين accessibleName لكل زر يفتقده، مشتقًّا من نصّه بلا إيموجي."""
+        for btn in self.findChildren(QPushButton):
+            if not btn.accessibleName():
+                name = _clean_label(btn.text())
+                if name:
+                    btn.setAccessibleName(name)
+
     def _build_header(self):
         header = QFrame()
         header.setFixedHeight(80)
@@ -230,7 +311,7 @@ class MainWindow(QMainWindow):
 
         # Logo + Title
         title = QLabel(f"▶  {APP_NAME}")
-        title.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        title.setFont(_bold_font(22))
         title.setStyleSheet(f"color: {C['accent']}; border: none;")
 
         version = QLabel(f"الإصدار {APP_VERSION}")
@@ -276,7 +357,7 @@ class MainWindow(QMainWindow):
 
         # Channel name
         self.lbl_channel_name = QLabel("قم بتسجيل الدخول لعرض بيانات القناة")
-        self.lbl_channel_name.setFont(QFont("Segoe UI", 18, QFont.Bold))
+        self.lbl_channel_name.setFont(_bold_font(18))
         self.lbl_channel_name.setStyleSheet(f"color: {C['accent']};")
         self.lbl_channel_name.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl_channel_name)
@@ -428,6 +509,8 @@ class MainWindow(QMainWindow):
         btn_clear_thumb = QPushButton("✕")
         btn_clear_thumb.setFixedWidth(40)
         btn_clear_thumb.setProperty("class", "flat")
+        btn_clear_thumb.setToolTip("مسح الصورة المصغرة")
+        btn_clear_thumb.setAccessibleName("مسح الصورة المصغرة")
         btn_clear_thumb.clicked.connect(lambda: self.txt_thumbnail.clear())
 
         thumb_layout.addWidget(self.txt_thumbnail)
@@ -477,7 +560,7 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         self.btn_upload = QPushButton("🚀 رفع الفيديو")
         self.btn_upload.setFixedHeight(54)
-        self.btn_upload.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        self.btn_upload.setFont(_bold_font(16))
         self.btn_upload.setToolTip("بدء رفع الفيديو (Ctrl+U)")
         self.btn_upload.setAccessibleName("زر رفع الفيديو")
         self.btn_upload.setShortcut(QKeySequence("Ctrl+U"))
@@ -583,7 +666,7 @@ class MainWindow(QMainWindow):
         btns.addWidget(self.lbl_videos_count)
         layout.addLayout(btns)
 
-        return tab
+        return self._scrollable(tab)
 
     # ================================================================
     #  تبويب: قوائم التشغيل
@@ -665,7 +748,7 @@ class MainWindow(QMainWindow):
         splitter.setSizes([350, 650])
         layout.addWidget(splitter)
 
-        return tab
+        return self._scrollable(tab)
 
     # ================================================================
     #  تبويب: الرفع الجماعي
@@ -745,7 +828,7 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         self.btn_batch_start = QPushButton("🚀 بدء الرفع الجماعي")
         self.btn_batch_start.setFixedHeight(44)
-        self.btn_batch_start.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        self.btn_batch_start.setFont(_bold_font(13))
         self.btn_batch_start.clicked.connect(self._batch_start)
 
         self.btn_batch_cancel = QPushButton("⏹️ إلغاء")
@@ -757,7 +840,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self.btn_batch_cancel)
         layout.addLayout(btn_row)
 
-        return tab
+        return self._scrollable(tab)
 
     # ================================================================
     #  تبويب: الإعدادات
@@ -872,11 +955,9 @@ class MainWindow(QMainWindow):
         self.btn_auth.setText("⏳ جاري المصادقة...")
         self.statusBar().showMessage("جاري المصادقة مع Google...")
 
-        self._auth_thread = AuthThread(self.yt)
-        self._auth_thread.finished.connect(self._on_auth_done)
-        self._auth_thread.start()
+        self._run_async(self.yt.authenticate, self._on_auth_done)
 
-    def _on_auth_done(self, success, message):
+    def _on_auth_done(self, success, result, error):
         self.btn_auth.setEnabled(True)
 
         if success:
@@ -884,14 +965,15 @@ class MainWindow(QMainWindow):
             self.btn_auth.setStyleSheet(f"background: {C['success']};")
             self.lbl_auth_status.setText("متصل")
             self.lbl_auth_status.setStyleSheet(f"color: {C['success']}; border: none; font-size: 12px;")
-            self.statusBar().showMessage(message, 5000)
+            self.statusBar().showMessage("تمت المصادقة بنجاح! ✓", 5000)
             self._refresh_dashboard()
         else:
             self.btn_auth.setText("🔐 تسجيل الدخول")
             self.lbl_auth_status.setText("غير متصل")
             self.lbl_auth_status.setStyleSheet(f"color: {C['error']}; border: none; font-size: 12px;")
-            QMessageBox.critical(self, "خطأ في المصادقة", message)
-            self.statusBar().showMessage(message, 5000)
+            msg = f"خطأ في المصادقة: {error}"
+            QMessageBox.critical(self, "خطأ في المصادقة", msg)
+            self.statusBar().showMessage(msg, 5000)
 
     def _logout(self):
         reply = QMessageBox.question(
@@ -915,52 +997,48 @@ class MainWindow(QMainWindow):
             return
 
         self.statusBar().showMessage("جاري تحميل بيانات القناة...")
-        self._info_thread = LoadChannelInfoThread(self.yt)
-        self._info_thread.finished.connect(self._on_channel_info_loaded)
-        self._info_thread.start()
+        # نداء واحد يجلب القناة مرة واحدة (إحصائيات + أحدث فيديوهات) — توفير في حصّة الـAPI.
+        self._run_async(self.yt.get_dashboard_data, self._on_dashboard_loaded, 10)
 
-        self._videos_thread = LoadVideosThread(self.yt, 10)
-        self._videos_thread.finished.connect(self._on_recent_videos_loaded)
-        self._videos_thread.start()
-
-    def _on_channel_info_loaded(self, success, info, error):
-        if success and info:
-            self.channel_info = info
-            self.lbl_channel_name.setText(f"📺 {info['title']}")
-            self.lbl_channel_desc.setText(info.get('description', '')[:200])
-
-            # Update stat cards
-            self._update_stat_card(self.stat_subscribers, "المشتركون",
-                                   format_number(info['subscribers']), C['accent'])
-            self._update_stat_card(self.stat_views, "المشاهدات الكلية",
-                                   format_number(info['views']), C['accent2'])
-            self._update_stat_card(self.stat_videos, "الفيديوهات",
-                                   str(info['video_count']), C['success'])
-            self._update_stat_card(self.stat_created, "تاريخ الإنشاء",
-                                   format_date(info.get('published_at', '')), C['warning'])
-
-            self.statusBar().showMessage("تم تحميل بيانات القناة بنجاح ✓", 3000)
-        else:
+    def _on_dashboard_loaded(self, success, data, error):
+        if not (success and data):
             self.statusBar().showMessage(f"خطأ: {error}", 5000)
+            return
+
+        info = data['info']
+        self.channel_info = info
+        self.lbl_channel_name.setText(f"📺 {info['title']}")
+        self.lbl_channel_desc.setText(info.get('description', '')[:200])
+
+        # Update stat cards
+        self._update_stat_card(self.stat_subscribers, "المشتركون",
+                               format_number(info['subscribers']), C['accent'])
+        self._update_stat_card(self.stat_views, "المشاهدات الكلية",
+                               format_number(info['views']), C['accent2'])
+        self._update_stat_card(self.stat_videos, "الفيديوهات",
+                               str(info['video_count']), C['success'])
+        self._update_stat_card(self.stat_created, "تاريخ الإنشاء",
+                               format_date(info.get('published_at', '')), C['warning'])
+
+        self._populate_recent_videos(data['videos'])
+        self.statusBar().showMessage("تم تحميل بيانات القناة بنجاح ✓", 3000)
+
+    def _populate_recent_videos(self, videos):
+        self.recent_table.setRowCount(0)
+        for v in videos[:10]:
+            row = self.recent_table.rowCount()
+            self.recent_table.insertRow(row)
+            self.recent_table.setItem(row, 0, QTableWidgetItem(v['title']))
+            self.recent_table.setItem(row, 1, QTableWidgetItem(format_number(v['views'])))
+            self.recent_table.setItem(row, 2, QTableWidgetItem(format_number(v['likes'])))
+            self.recent_table.setItem(row, 3, QTableWidgetItem(format_number(v['comments'])))
+            self.recent_table.setItem(row, 4, QTableWidgetItem(format_date(v['publishedAt'])))
 
     def _update_stat_card(self, card, title, value, color):
-        layout = card.layout()
-        if layout.count() >= 2:
-            layout.itemAt(0).widget().setText(str(value))
-            layout.itemAt(0).widget().setStyleSheet(f"color: {color}; border: none;")
-            layout.itemAt(1).widget().setText(title)
-
-    def _on_recent_videos_loaded(self, success, videos, error):
-        if success:
-            self.recent_table.setRowCount(0)
-            for v in videos[:10]:
-                row = self.recent_table.rowCount()
-                self.recent_table.insertRow(row)
-                self.recent_table.setItem(row, 0, QTableWidgetItem(v['title']))
-                self.recent_table.setItem(row, 1, QTableWidgetItem(format_number(v['views'])))
-                self.recent_table.setItem(row, 2, QTableWidgetItem(format_number(v['likes'])))
-                self.recent_table.setItem(row, 3, QTableWidgetItem(format_number(v['comments'])))
-                self.recent_table.setItem(row, 4, QTableWidgetItem(format_date(v['publishedAt'])))
+        # مراجع مباشرة بدل الوصول بالفهرس (أكثر متانةً ضد تغيّر التخطيط).
+        card.val_label.setText(str(value))
+        card.val_label.setStyleSheet(f"color: {color}; border: none;")
+        card.title_label.setText(title)
 
     def _open_channel(self):
         channel_id = (self.channel_info or {}).get('channel_id')
@@ -1029,8 +1107,15 @@ class MainWindow(QMainWindow):
 
         scheduled_time = None
         if self.chk_schedule.isChecked():
-            dt = self.dt_schedule.dateTime().toPyDateTime()
-            scheduled_time = dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            # QDateTimeEdit يُعطي وقتًا محليًا؛ نحوّله فعليًا إلى UTC قبل الوسم بـ Z
+            # (كان الكود السابق يَسِم الوقت المحلي بـ Z فيُنشر بفارق إزاحة المنطقة).
+            qdt = self.dt_schedule.dateTime()
+            if qdt <= QDateTime.currentDateTime():
+                QMessageBox.warning(self, "تنبيه",
+                                    "وقت الجدولة يجب أن يكون في المستقبل")
+                return
+            dt_utc = qdt.toUTC().toPyDateTime()
+            scheduled_time = dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             privacy = "private"
 
         self.btn_upload.setEnabled(False)
@@ -1078,9 +1163,7 @@ class MainWindow(QMainWindow):
         max_results = int(self.cmb_videos_count.currentText())
         self.statusBar().showMessage("جاري تحميل الفيديوهات...")
 
-        self._load_vids_thread = LoadVideosThread(self.yt, max_results)
-        self._load_vids_thread.finished.connect(self._on_videos_loaded)
-        self._load_vids_thread.start()
+        self._run_async(self.yt.get_videos, self._on_videos_loaded, max_results)
 
     def _on_videos_loaded(self, success, videos, error):
         if success:
@@ -1210,16 +1293,14 @@ class MainWindow(QMainWindow):
         )
         if reply == QMessageBox.Yes:
             self.statusBar().showMessage("جاري حذف الفيديو...")
-            self._del_thread = DeleteVideoThread(self.yt, video_id)
-            self._del_thread.finished.connect(self._on_video_deleted)
-            self._del_thread.start()
+            self._run_async(self.yt.delete_video, self._on_video_deleted, video_id)
 
-    def _on_video_deleted(self, success, message):
+    def _on_video_deleted(self, success, result, error):
         if success:
-            self.statusBar().showMessage(message, 3000)
+            self.statusBar().showMessage("تم حذف الفيديو بنجاح!", 3000)
             self._load_videos()
         else:
-            QMessageBox.critical(self, "خطأ", message)
+            QMessageBox.critical(self, "خطأ", f"خطأ في الحذف: {error}")
 
     def _show_comments(self):
         video_id, title = self._get_selected_video()
@@ -1237,9 +1318,7 @@ class MainWindow(QMainWindow):
             return
 
         self.statusBar().showMessage("جاري تحميل قوائم التشغيل...")
-        self._pl_thread = LoadPlaylistsThread(self.yt)
-        self._pl_thread.finished.connect(self._on_playlists_loaded)
-        self._pl_thread.start()
+        self._run_async(self.yt.get_playlists, self._on_playlists_loaded)
 
     def _on_playlists_loaded(self, success, playlists, error):
         if success:
@@ -1461,7 +1540,7 @@ class MainWindow(QMainWindow):
         # Update status in table
         for i, result in enumerate(results):
             if i < self.batch_table.rowCount():
-                status = "✅ نجاح" if result['success'] else f"❌ فشل"
+                status = "✅ نجاح" if result['success'] else "❌ فشل"
                 self.batch_table.setItem(i, 4, QTableWidgetItem(status))
 
         QMessageBox.information(self, "انتهى الرفع الجماعي", message)
@@ -1579,7 +1658,7 @@ class CommentsDialog(QDialog):
         self._load_comments()
 
     def _load_comments(self):
-        self._thread = LoadCommentsThread(self.yt, self.video_id)
+        self._thread = TaskWorker(self.yt.get_video_comments, self.video_id)
         self._thread.finished.connect(self._on_loaded)
         self._thread.start()
 
@@ -1615,7 +1694,14 @@ def main():
     app.setLayoutDirection(Qt.RightToLeft)
     app.setStyleSheet(STYLESHEET)
 
-    font = QFont("Segoe UI", 11)
+    # عائلة خط مركزية مع بدائل تدعم العربية عبر المنصات (Segoe UI على ويندوز،
+    # Tahoma/Arial كبدائل). كل الودجت ترث هذه العائلة عبر _scaled_font.
+    font = QFont()
+    if hasattr(font, "setFamilies"):
+        font.setFamilies(["Segoe UI", "Tahoma", "Arial", "sans-serif"])
+    else:  # Qt أقدم من 5.13
+        font.setFamily("Segoe UI")
+    font.setPointSize(11)
     app.setFont(font)
 
     window = MainWindow()

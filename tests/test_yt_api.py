@@ -53,6 +53,43 @@ class TestGetVideos:
         api.youtube.channels.return_value.list.return_value.execute.return_value = {'items': []}
         assert api.get_videos() == []
 
+    def test_provided_uploads_id_skips_channel_call(self):
+        """تمرير uploads_playlist_id يتجنّب نداء channels().list الإضافي."""
+        api = _make_api()
+        api.youtube.playlistItems.return_value.list.return_value.execute.return_value = {
+            'items': [], 'nextPageToken': None,
+        }
+        api.get_videos(max_results=10, uploads_playlist_id='UU123')
+        api.youtube.channels.assert_not_called()
+
+
+class TestDashboardData:
+    def test_single_channel_call_returns_info_and_videos(self):
+        api = _make_api()
+        api.youtube.channels.return_value.list.return_value.execute.return_value = {
+            'items': [{
+                'id': 'CH1',
+                'statistics': {'subscriberCount': '10', 'viewCount': '200', 'videoCount': '3'},
+                'snippet': {'title': 'قناة', 'description': 'د',
+                            'publishedAt': '2020-01-01T00:00:00Z', 'thumbnails': {}},
+                'contentDetails': {'relatedPlaylists': {'uploads': 'UU1'}},
+            }]
+        }
+        api.youtube.playlistItems.return_value.list.return_value.execute.return_value = {
+            'items': [], 'nextPageToken': None,
+        }
+        data = api.get_dashboard_data(max_videos=5)
+        assert data['info']['channel_id'] == 'CH1'
+        assert data['info']['subscribers'] == 10
+        assert data['videos'] == []
+        # القناة تُطلب مرة واحدة فقط (لا تكرار في get_videos).
+        assert api.youtube.channels.return_value.list.call_count == 1
+
+    def test_no_channel_returns_none(self):
+        api = _make_api()
+        api.youtube.channels.return_value.list.return_value.execute.return_value = {'items': []}
+        assert api.get_dashboard_data() is None
+
 
 class TestUpdateVideo:
     def test_merges_existing_fields(self):
