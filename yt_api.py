@@ -137,15 +137,13 @@ class YouTubeAPI:
         items = response.get('items')
         return items[0] if items else None
 
-    def get_channel_statistics(self) -> Optional[Dict]:
-        """جلب إحصائيات القناة بمفاتيح محايدة (غير مرتبطة بلغة الواجهة)."""
-        info = self.get_channel_info()
-        if not info:
-            return None
-        stats = info.get('statistics', {})
-        snippet = info.get('snippet', {})
+    @staticmethod
+    def _map_channel_info(channel: Dict) -> Dict:
+        """تحويل استجابة القناة الخام إلى قاموس بمفاتيح محايدة لغويًا."""
+        stats = channel.get('statistics', {})
+        snippet = channel.get('snippet', {})
         return {
-            'channel_id': info['id'],
+            'channel_id': channel['id'],
             'subscribers': int(stats.get('subscriberCount', 0)),
             'views': int(stats.get('viewCount', 0)),
             'video_count': int(stats.get('videoCount', 0)),
@@ -155,14 +153,42 @@ class YouTubeAPI:
             'published_at': snippet.get('publishedAt', ''),
         }
 
-    # ============ الفيديوهات ============
-    def get_videos(self, max_results: int = 50) -> List[Dict]:
-        """جلب قائمة فيديوهات القناة."""
+    def get_channel_statistics(self) -> Optional[Dict]:
+        """جلب إحصائيات القناة بمفاتيح محايدة (غير مرتبطة بلغة الواجهة)."""
+        info = self.get_channel_info()
+        if not info:
+            return None
+        return self._map_channel_info(info)
+
+    def get_dashboard_data(self, max_videos: int = 10) -> Optional[Dict]:
+        """جلب بيانات لوحة التحكم (إحصائيات + أحدث فيديوهات) بنداء قناة واحد.
+
+        يتجنّب استدعاء ``channels().list`` مرتين (مرة للإحصائيات ومرة داخل
+        ``get_videos``) بجلب معلومات القناة مرة واحدة وإعادة استخدامها.
+        """
         channel = self.get_channel_info()
         if not channel:
-            return []
+            return None
 
+        info = self._map_channel_info(channel)
         uploads_playlist_id = channel['contentDetails']['relatedPlaylists']['uploads']
+        videos = self.get_videos(max_videos, uploads_playlist_id=uploads_playlist_id)
+        return {'info': info, 'videos': videos}
+
+    # ============ الفيديوهات ============
+    def get_videos(self, max_results: int = 50,
+                   uploads_playlist_id: Optional[str] = None) -> List[Dict]:
+        """جلب قائمة فيديوهات القناة.
+
+        يمكن تمرير ``uploads_playlist_id`` معروفًا مسبقًا لتفادي نداء
+        ``channels().list`` إضافي (توفير في حصّة الـAPI).
+        """
+        if uploads_playlist_id is None:
+            channel = self.get_channel_info()
+            if not channel:
+                return []
+            uploads_playlist_id = channel['contentDetails']['relatedPlaylists']['uploads']
+
         videos: List[Dict] = []
         next_page = None
 
