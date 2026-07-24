@@ -1,6 +1,21 @@
 # ▶ YouTube Upload
 
-تطبيق شامل لإدارة قناة يوتيوب مبني بـ Python و PyQt5
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/abosalehg-ui/Youtube-Upload/actions/workflows/ci.yml/badge.svg)](https://github.com/abosalehg-ui/Youtube-Upload/actions/workflows/ci.yml)
+
+تطبيق شامل لإدارة قناة يوتيوب مبني بـ Python و PyQt5.
+
+## المحتويات
+
+- [المميزات](#-المميزات)
+- [التثبيت](#-التثبيت)
+- [هيكل المشروع](#-هيكل-المشروع)
+- [الاختبارات](#-الاختبارات)
+- [ملاحظات مهمة](#️-ملاحظات-مهمة)
+- [الأمان](#-الأمان)
+- [التواصل](#-التواصل)
+- [الترخيص](#-الترخيص)
 
 ---
 
@@ -45,40 +60,32 @@
 
 ### المتطلبات
 - Python 3.10 أو أحدث (المكتبات المثبّتة تتطلب 3.10+)
-- حساب Google Cloud مع YouTube Data API v3 مفعّل
+- حساب Google Cloud مع تفعيل YouTube Data API v3
 
 ### الخطوات
 
-1. **تثبيت المتطلبات:**
+**1. تثبيت المتطلبات**
+
 ```bash
 pip install -r requirements.txt
 ```
 
-2. **إعداد Google API:**
-   - اذهب إلى [Google Cloud Console](https://console.cloud.google.com)
-   - أنشئ مشروع جديد أو استخدم مشروع حالي
-   - فعّل **YouTube Data API v3**
-   - أنشئ **OAuth 2.0 Client ID** من نوع Desktop
-   - حمّل ملف الاعتماد وأعد تسميته إلى `client_secret.json` وضعه في مجلد التطبيق
+**2. إعداد Google API**
+
+1. اذهب إلى [Google Cloud Console](https://console.cloud.google.com)
+2. أنشئ مشروعًا جديدًا أو استخدم مشروعًا حاليًا
+3. فعّل **YouTube Data API v3**
+4. أنشئ **OAuth 2.0 Client ID** من نوع Desktop
+5. حمّل ملف الاعتماد، أعد تسميته إلى `client_secret.json`، وضعه في مجلد التطبيق
    - يمكنك الاسترشاد بالقالب `client_secret.json.example` لمعرفة الشكل المطلوب
 
-3. **تشغيل التطبيق:**
+**3. تشغيل التطبيق**
 
-**Windows:**
-```
-run.bat
-```
-
-**Linux/Mac:**
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-**أو مباشرة:**
-```bash
-python main.py
-```
+| النظام | الأمر |
+|---|---|
+| Windows | `run.bat` |
+| Linux / Mac | `chmod +x run.sh && ./run.sh` |
+| مباشرة (أي نظام) | `python main.py` |
 
 ---
 
@@ -89,7 +96,7 @@ youtube_upload/
 ├── main.py                    # التطبيق الرئيسي (الواجهة)
 ├── yt_api.py                  # وحدة YouTube API
 ├── workers.py                 # خيوط العمل في الخلفية
-├── constants.py               # الثوابت والإعدادات
+├── constants.py                # الثوابت والإعدادات
 ├── styles.py                  # نظام الألوان وورقة الأنماط (QSS)
 ├── utils.py                   # دوال مساعدة + إعداد التسجيل
 ├── client_secret.json.example # قالب ملف المصادقة
@@ -117,7 +124,7 @@ pytest -v
 
 1. عند أول تشغيل سيفتح المتصفح لتسجيل الدخول بحساب Google
 2. بعد المصادقة الأولى تُحفظ بيانات الاعتماد في `token.json` (JSON، وليس pickle)
-3. جدولة النشر تتطلب أن تكون القناة مؤهلة (لها تاريخ جيد)
+3. جدولة النشر تتطلب أن تكون القناة مؤهلة (لها سجلّ جيد)
 4. الصور المصغرة المخصصة تتطلب التحقق من حساب القناة
 5. تُكتب سجلات التشغيل في `youtube_upload.log`
 
@@ -130,15 +137,13 @@ pytest -v
 
 ---
 
-### معلومات الاتصال
+## 📬 التواصل
 
-- 📧 **البريد**: abo.saleh.g@gmail.com
-- 🌐 **GitHub**: [https://github.com/abosalehg-ui/Youtube-Upload]
+| | |
+|---|---|
+| 📧 البريد | [abo.saleh.g@gmail.com](mailto:abo.saleh.g@gmail.com) |
+| 🌐 GitHub | [abosalehg-ui/Youtube-Upload](https://github.com/abosalehg-ui/Youtube-Upload) |
 
-### Contact Information
-
-- 📧 **Email**: abo.saleh.g@gmail.com
-- 🌐 **GitHub**: [https://github.com/abosalehg-ui/Youtube-Upload]
 ---
 
 ## 📄 الترخيص
