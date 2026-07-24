@@ -61,7 +61,6 @@ pip install -r requirements.txt
    - أنشئ **OAuth 2.0 Client ID** من نوع Desktop
    - حمّل ملف الاعتماد وأعد تسميته إلى `client_secret.json` وضعه في مجلد التطبيق
    - يمكنك الاسترشاد بالقالب `client_secret.json.example` لمعرفة الشكل المطلوب
-   - ⚠️ لا تشارك `client_secret.json` أو ترفعه إلى GitHub (مُستثنى مسبقًا في `.gitignore`)
 
 3. **تشغيل التطبيق:**
 
@@ -128,7 +127,6 @@ pytest -v
 
 - لا يُخزَّن أي سرّ داخل الكود؛ تُقرأ الأسرار من `client_secret.json` المحلي وقت التشغيل.
 - تُحفَظ بيانات اعتماد OAuth كـ JSON (لا pickle) بصلاحيات مقيّدة قدر الإمكان.
-- إن رفعت سرّ العميل سابقًا بالخطأ، **دوّره** من Google Cloud Console.
 
 ---
 
