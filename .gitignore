@@ -1,0 +1,20 @@
+# ── Credentials & secrets (لا تُرفع أبدًا) ──
+client_secret*.json
+!client_secret.json.example
+token.json
+token.pickle
+*.pickle
+.env
+
+# ── Logs ──
+*.log
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
