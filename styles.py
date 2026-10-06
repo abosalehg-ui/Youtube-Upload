@@ -40,7 +40,6 @@ C = {
 STYLESHEET = f"""
 * {{
     font-family: 'Segoe UI', 'Tahoma', 'Arial', sans-serif;
-    outline: none;
 }}
 QMainWindow {{
     background-color: {C['bg']};
@@ -64,13 +63,13 @@ QTabBar {{
 QTabBar::tab {{
     background: transparent;
     color: {C['text2']};
-    padding: 14px 28px;
+    padding: 12px 18px;
     margin: 0 2px;
     border: none;
     border-bottom: 3px solid transparent;
     font-size: 15px;
     font-weight: 600;
-    min-width: 140px;
+    min-width: 110px;  /* ست تبويبات تتسع في نافذة 1100px */
 }}
 QTabBar::tab:selected {{
     color: {C['accent']};
@@ -417,5 +416,28 @@ QLabel {{
 
 QDialogButtonBox QPushButton {{
     min-width: 100px;
+}}
+
+/* ── مؤشرات التركيز (تنقّل لوحة المفاتيح) ── */
+QTableWidget:focus, QListWidget:focus, QComboBox:focus,
+QDateTimeEdit:focus {{
+    border: 2px solid {C['text']};
+}}
+QCheckBox:focus, QTabBar::tab:focus {{
+    color: {C['accent']};
+    text-decoration: underline;
+}}
+
+/* ── نصوص مساعدة (بدل الأنماط المضمّنة) ── */
+QLabel[class="hint"] {{
+    color: {C['text2']};
+    font-size: 13px;
+}}
+QLabel[class="warning"] {{
+    color: {C['warning']};
+    font-size: 13px;
+}}
+QLabel[class="muted"] {{
+    color: {C['text2']};
 }}
 """

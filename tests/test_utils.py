@@ -7,7 +7,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import format_number, format_date, parse_tags  # noqa: E402
+from utils import (  # noqa: E402
+    app_data_dir, format_date, format_number, humanize_error, parse_tags,
+    sanitize_title, tags_total_length, validate_tags,
+)
 
 
 class TestFormatNumber:
@@ -54,3 +57,58 @@ class TestParseTags:
     def test_empty(self):
         assert parse_tags("") == []
         assert parse_tags(None) == []
+
+
+class TestSanitizeTitle:
+    def test_strips_angle_brackets_and_truncates(self):
+        assert sanitize_title("a <b> c") == "a b c"
+        assert len(sanitize_title("x" * 150)) == 100
+
+    def test_empty(self):
+        assert sanitize_title("") == ""
+        assert sanitize_title(None) == ""
+
+
+class TestTags:
+    def test_length_counts_commas_and_quotes(self):
+        assert tags_total_length(["ab", "cd"]) == 5          # ab,cd
+        assert tags_total_length(["a b"]) == 5               # "a b"
+
+    def test_validate(self):
+        assert validate_tags(["ok"]) is None
+        assert validate_tags(["x" * 501]) is not None
+
+
+class _FakeResp:
+    def __init__(self, status):
+        self.status = status
+
+
+class _FakeHttpError(Exception):
+    def __init__(self, status, content=b""):
+        super().__init__("raw http error")
+        self.resp = _FakeResp(status)
+        self.content = content
+
+
+class TestHumanizeError:
+    def test_quota(self):
+        msg = humanize_error(_FakeHttpError(403, b'{"reason": "quotaExceeded"}'))
+        assert "حصة" in msg
+
+    def test_status_codes(self):
+        assert "الجلسة" in humanize_error(_FakeHttpError(401))
+        assert "مؤقت" in humanize_error(_FakeHttpError(503))
+
+    def test_network_and_fallback(self):
+        assert "الاتصال" in humanize_error(ConnectionError())
+        assert humanize_error(ValueError("x")) == "x"
+
+
+class TestDataPaths:
+    def test_app_data_dir_respects_xdg(self, tmp_path, monkeypatch):
+        if sys.platform.startswith("win") or sys.platform == "darwin":
+            return
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        assert app_data_dir() == str(tmp_path / "YouTubeUpload")
+        assert os.path.isdir(app_data_dir())
