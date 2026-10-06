@@ -1,20 +1,27 @@
 #!/bin/bash
+# تشغيل التطبيق داخل بيئة افتراضية (.venv) — لا يلمس بايثون النظام (PEP 668)
+# ولا يخفي أخطاء التثبيت.
+set -e
+cd "$(dirname "$0")"
+
 echo ""
 echo "  ▶ YouTube Upload - تطبيق إدارة قناة يوتيوب"
 echo "  ═══════════════════════════════════════════"
 echo ""
 
-# Check Python
 if ! command -v python3 &> /dev/null; then
     echo "  ❌ Python3 غير مثبت!"
     exit 1
 fi
 
-# Install dependencies
-echo "  📦 جاري فحص المتطلبات..."
-pip3 install -r requirements.txt --quiet 2>/dev/null
+if [ ! -d ".venv" ]; then
+    echo "  📦 إنشاء بيئة افتراضية (.venv)..."
+    python3 -m venv .venv
+fi
 
-# Run
+echo "  📦 جاري فحص المتطلبات..."
+.venv/bin/python -m pip install --quiet --disable-pip-version-check -r requirements.txt
+
 echo "  🚀 جاري تشغيل التطبيق..."
 echo ""
-python3 main.py
+exec .venv/bin/python main.py

@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul 2>nul
 title YouTube Upload
+cd /d "%~dp0"
 
 echo.
 echo  YouTube Upload - Channel Manager
@@ -13,23 +14,28 @@ if errorlevel 1 (
     echo  ERROR: Python is not installed!
     echo  Download from: https://python.org/downloads
     pause
-    exit /b
+    exit /b 1
 )
 
-:: Fix Qt platform plugin path
-for /f "delims=" %%i in ('python -c "import os, PyQt5; print(os.path.join(os.path.dirname(PyQt5.__file__), 'Qt5', 'plugins', 'platforms'))"') do set QT_QPA_PLATFORM_PLUGIN_PATH=%%i
-
-if not exist "%QT_QPA_PLATFORM_PLUGIN_PATH%" (
-    for /f "delims=" %%i in ('python -c "import os, PyQt5; print(os.path.join(os.path.dirname(PyQt5.__file__), 'Qt', 'plugins', 'platforms'))"') do set QT_QPA_PLATFORM_PLUGIN_PATH=%%i
+:: Virtual environment (does not touch the system Python)
+if not exist ".venv\Scripts\python.exe" (
+    echo  Creating virtual environment .venv ...
+    python -m venv .venv
+    if errorlevel 1 goto :error
 )
+
+echo  Checking requirements...
+".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check -r requirements.txt
+if errorlevel 1 goto :error
 
 echo  Starting application...
 echo.
-python main.py
+".venv\Scripts\python.exe" main.py
+if errorlevel 1 goto :error
+exit /b 0
 
-if errorlevel 1 (
-    echo.
-    echo  Application exited with error.
-    pause
-)
+:error
+echo.
+echo  Application exited with error.
 pause
+exit /b 1

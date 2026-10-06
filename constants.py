@@ -10,26 +10,30 @@
 
 import json
 
+from utils import client_secret_path
+
 APP_NAME = "YouTube Upload"
 APP_VERSION = "1.1.0"
 
 
-def _load_client_id(path: str = "client_secret.json") -> str:
-    """قراءة Client ID من ملف الاعتماد المحلي إن وُجد (وإلا سلسلة فارغة)."""
+def load_client_id(path: str = None) -> str:
+    """قراءة Client ID من ملف الاعتماد المحلي إن وُجد (وإلا سلسلة فارغة).
+
+    تُستدعى عند الحاجة (لا مرة واحدة عند الاستيراد) حتى يظهر أثر تغيير الملف فورًا.
+    """
+    path = path or client_secret_path()
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         section = data.get("installed") or data.get("web") or {}
         return section.get("client_id", "")
-    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+    except (OSError, json.JSONDecodeError, ValueError, AttributeError):
         return ""
 
 
-CLIENT_ID = _load_client_id()
-
 DEVELOPER_NAME = "عبدالكريم العبود"
 DEVELOPER_EMAIL = "abo.saleh.g@gmail.com"
-COPYRIGHT = "© 2026 [Youtube Upload] - All Rights Reserved"
+COPYRIGHT = "© 2026 عبدالكريم العبود — MIT License"
 
 CATEGORIES = {
     "1": "أفلام ورسوم متحركة",
@@ -61,4 +65,10 @@ PRIVACY_OPTIONS = {
 PRIVACY_REVERSE = {v: k for k, v in PRIVACY_OPTIONS.items()}
 
 VIDEO_EXTENSIONS = "ملفات فيديو (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v *.3gp *.mpeg)"
-IMAGE_EXTENSIONS = "ملفات صور (*.jpg *.jpeg *.png *.bmp *.gif *.webp)"
+# واجهة thumbnails.set تقبل JPEG وPNG فقط، بحجم أقصى 2MB.
+IMAGE_EXTENSIONS = "ملفات صور (*.jpg *.jpeg *.png)"
+MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
+
+# كل رفع يكلّف 1600 وحدة من الحصة الافتراضية (10,000 يوميًا) ≈ 6 فيديوهات.
+UPLOAD_QUOTA_COST = 1600
+DEFAULT_DAILY_QUOTA = 10_000
